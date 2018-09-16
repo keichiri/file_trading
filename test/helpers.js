@@ -15,7 +15,17 @@ async function assertRevert(promise) {
 }
 
 
+async function weiGasCost(tx) {
+    let actualTx = await web3.eth.getTransaction(tx.tx);
+    let gasUsed = web3.toBigNumber(tx.receipt.gasUsed);
+    let gasPrice = actualTx.gasPrice;
+
+    return gasUsed.mul(gasPrice);
+};
+
+
 module.exports = {
     retrieveEvent,
     assertRevert,
+    weiGasCost,
 };
