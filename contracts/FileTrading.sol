@@ -15,13 +15,14 @@ contract FileTrading {
     struct FileOffering {
         address offeror;
         bytes fileName;
+        bytes32 fileHash;
         uint price;
         uint requiredDeposit;
     }
 
 
-    event NewFileOffering(uint indexed id, address indexed offeror, bytes fileName, uint price, uint requiredDeposit);
-    event FileOfferingRemoved(uint indexed id, address indexed offeror, bytes fileName);
+    event NewFileOffering(uint indexed id, address indexed offeror, bytes fileName, bytes32 fileHash, uint price, uint requiredDeposit);
+    event FileOfferingRemoved(uint indexed id, address indexed offeror, bytes fileName, bytes32 fileHash);
 
     modifier isActiveFileOffering(uint _fileOfferingID) {
         require(_fileOfferingID <= fileOfferingsCounter, "File offering ID must be one issued before");
@@ -56,8 +57,9 @@ contract FileTrading {
     /// @dev It is advisable to not use very long file names. Also, if fee is overpaid, the money is not returned
     /// @param _fileName Name of the file that is being offered
     /// @param _price Price for the file
+    /// @param _fileHash The hash of the file before encryption
     /// @param _requiredDeposit Deposit that is required before sending file
-    function createFileOffering(bytes _fileName, uint _price, uint _requiredDeposit) public payable {
+    function createFileOffering(bytes _fileName, bytes32 _fileHash, uint _price, uint _requiredDeposit) public payable {
         require(msg.value >= fee, "Must send enough wei to cover file offering fee");
 
         fileOfferingsCounter++;
@@ -65,12 +67,13 @@ contract FileTrading {
         // Creating offering
         fileOfferings[fileOfferingsCounter].offeror = msg.sender;
         fileOfferings[fileOfferingsCounter].fileName = _fileName;
+        fileOfferings[fileOfferingsCounter].fileHash = _fileHash;
         fileOfferings[fileOfferingsCounter].price = _price;
         fileOfferings[fileOfferingsCounter].requiredDeposit = _requiredDeposit;
 
         activeFileOfferings.push(fileOfferingsCounter);
 
-        emit NewFileOffering(fileOfferingsCounter, msg.sender, _fileName, _price, _requiredDeposit);
+        emit NewFileOffering(fileOfferingsCounter, msg.sender, _fileName, _fileHash, _price, _requiredDeposit);
     }
 
     /// @notice Removes file offering. Makes sure all the ether is refunded
@@ -94,7 +97,8 @@ contract FileTrading {
         emit FileOfferingRemoved(
             _fileOfferingID,
             fileOfferings[_fileOfferingID].offeror,
-            fileOfferings[_fileOfferingID].fileName
+            fileOfferings[_fileOfferingID].fileName,
+            fileOfferings[_fileOfferingID].fileHash
         );
 
         // Deleting
