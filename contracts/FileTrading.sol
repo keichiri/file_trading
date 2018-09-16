@@ -28,6 +28,7 @@ contract FileTrading {
         uint id;
         address buyer;
         bytes publicKey;
+        bytes encryptedFileHash;
         uint paid;
     }
 
@@ -35,6 +36,7 @@ contract FileTrading {
     event NewFileOffering(uint indexed id, address indexed offeror, bytes fileName, bytes32 fileHash, uint price, uint requiredDeposit);
     event FileOfferingRemoved(uint indexed id, address indexed offeror, bytes fileName, bytes32 fileHash);
     event NewFileRequest(uint indexed id, uint indexed fileOfferingID, address indexed buyer, bytes publicKey);
+    event FileRequestFulfilled(uint indexed id, uint indexed fileOfferingID, address indexed buyer, bytes encryptedFileHash);
 
     modifier isActiveFileOffering(uint _fileOfferingID) {
         require(_fileOfferingID <= fileOfferingsCounter, "File offering ID must be one issued before");
@@ -52,8 +54,30 @@ contract FileTrading {
         _;
     }
 
+    modifier isActiveFileRequest(uint _fileOfferingID, uint _fileRequest) {
+        require(fileOfferings[_fileOfferingID].requestCounter >= _fileRequest, "File request must be one created before");
+
+        bool active = false;
+        for (uint i = 0; i < fileOfferings[_fileOfferingID].activeRequests.length; i++) {
+            if (fileOfferings[_fileOfferingID].activeRequests[i] == _fileRequest) {
+                active = true;
+                break;
+            }
+        }
+
+        require(active, "File request must be active");
+
+        _;
+    }
+
     modifier onlyOwnerOrOfferor(uint _fileOfferingID) {
         require(msg.sender == owner || fileOfferings[_fileOfferingID].offeror == msg.sender, "Sender must be either offeror or owner");
+
+        _;
+    }
+
+    modifier onlyOfferor(uint _fileOfferingID) {
+        require(msg.sender == fileOfferings[_fileOfferingID].offeror, "Sender must be creator of the file offering");
 
         _;
     }
@@ -153,6 +177,22 @@ contract FileTrading {
     }
 
 
+    /// @notice Called by offeror with appropriate IPFS hash of the encrypted file
+    /// @param _fileOfferingID The file offering request belongs to
+    /// @param _fileRequestID The file request being fulfilled
+    /// @param _encryptedFileHash The hash of the encrypted file stored on IPFS
+    function fulfillFileRequest(uint _fileOfferingID, uint _fileRequestID, bytes _encryptedFileHash)
+        public isActiveFileOffering(_fileOfferingID) onlyOfferor(_fileOfferingID) isActiveFileRequest(_fileOfferingID, _fileRequestID) {
+        require(_encryptedFileHash.length != 0, "Encrypted file hash cannot be empty");
+        FileOffering storage offering = fileOfferings[_fileOfferingID];
+        require(offering.requests[_fileRequestID].encryptedFileHash.length == 0, "Cannot fulfill request more than once");
+
+        offering.requests[_fileRequestID].encryptedFileHash = _encryptedFileHash;
+        offering.offeror.transfer(offering.requiredDeposit);
+        emit FileRequestFulfilled(_fileRequestID, _fileOfferingID, offering.requests[_fileRequestID].buyer, _encryptedFileHash);
+    }
+
+
     /** View functions */
     function getActiveFileOfferings() public view returns (uint[]) {
         return activeFileOfferings;
@@ -162,11 +202,12 @@ contract FileTrading {
         return fileOfferings[_fileOfferingID].activeRequests;
     }
 
-    function getFileRequest(uint _fileOfferingID, uint _fileRequestID) public view returns (uint, address, bytes, uint) {
+    function getFileRequest(uint _fileOfferingID, uint _fileRequestID) public view returns (uint, address, bytes, bytes, uint) {
         return (
             fileOfferings[_fileOfferingID].requests[_fileRequestID].id,
             fileOfferings[_fileOfferingID].requests[_fileRequestID].buyer,
             fileOfferings[_fileOfferingID].requests[_fileRequestID].publicKey,
+            fileOfferings[_fileOfferingID].requests[_fileRequestID].encryptedFileHash,
             fileOfferings[_fileOfferingID].requests[_fileRequestID].paid
         );
     }

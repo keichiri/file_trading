@@ -32,7 +32,8 @@ contract("FileTrading", (accounts) => {
     let fileHash = "0x" + "a".repeat(64);
     let depositValue = web3.toWei('0.003', 'ether');
     let filePrice = web3.toWei('0.01', 'ether');
-    let publicKey = "0x123412341234";
+    let publicKey1 = "0x123412341234";
+    let publicKey2 = "0x567856785678";
     let encryptedFileHash = "0x" + "b".repeat(64);
 
 
@@ -119,7 +120,7 @@ contract("FileTrading", (accounts) => {
 
         it("Returns money for all active file requests", async() => {
             let initialBalance = await web3.eth.getBalance(buyer1);
-            let tx = await fileTrading.requestFile(1, publicKey, {from: buyer1, value: depositValue * 2});
+            let tx = await fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue * 2});
             let txCost = await weiGasCost(tx);
             await fileTrading.removeFileOffering(1, {from: offeror1});
 
@@ -160,39 +161,92 @@ contract("FileTrading", (accounts) => {
             let initialFileRequests = await fileTrading.getRequestIDsForFileOffering(1);
             assert.deepEqual(initialFileRequests, []);
 
-            await fileTrading.requestFile(1, publicKey, {from: buyer1, value: depositValue});
+            await fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue});
 
             let fileRequests = await fileTrading.getRequestIDsForFileOffering(1);
             assert.deepEqual(fileRequests[0].toNumber(), 1);
             let request = await fileTrading.getFileRequest(1, 1);
             assert.equal(request[0], 1);
             assert.equal(request[1], buyer1);
-            assert.equal(request[2], publicKey);
-            assert.equal(request[3], depositValue);
+            assert.equal(request[2], publicKey1);
+            assert.equal(request[3], "0x");
+            assert.equal(request[4], depositValue);
         });
 
         it("Emits NewFileRequest event", async() => {
-           let tx = await fileTrading.requestFile(1, publicKey, {from: buyer1, value: depositValue});
+           let tx = await fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue});
            let event = await retrieveEvent(tx, "NewFileRequest");
 
            assert.equal(event.args.id, 1);
            assert.equal(event.args.fileOfferingID, 1);
            assert.equal(event.args.buyer, buyer1);
-           assert.equal(event.args.publicKey, publicKey);
+           assert.equal(event.args.publicKey, publicKey1);
         });
 
         it("Reverts if wei sent less than deposit", async() => {
-            await assertRevert(fileTrading.requestFile(1, publicKey, {from: buyer1, value: depositValue - 1}));
+            await assertRevert(fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue - 1}));
         });
 
         it("Reverts if file offering removed", async() => {
             await fileTrading.removeFileOffering(1, {from: offeror1});
-            await assertRevert(fileTrading.requestFile(1, publicKey, {from: buyer1, value: depositValue}));
+            await assertRevert(fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue}));
         });
 
         it("Reverts if no such file offering", async() => {
-            await assertRevert(fileTrading.requestFile(2, publicKey, {from: buyer1, value: depositValue}));
+            await assertRevert(fileTrading.requestFile(2, publicKey1, {from: buyer1, value: depositValue}));
+        });
+    });
+
+    describe("Fulfilling file request", () => {
+        beforeEach(async () => {
+            await fileTrading.createFileOffering(fileName, fileHash, filePrice, depositValue, {
+                from: offeror1,
+                value: fileOfferingFee
+            });
+            await fileTrading.requestFile(1, publicKey1, {from: buyer1, value: depositValue});
+            await fileTrading.requestFile(1, publicKey2, {from: buyer2, value: depositValue});
         });
 
-    })
+        it("Sets encrypted file hash on file request", async () => {
+            await fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror1});
+
+            let request = await fileTrading.getFileRequest(1, 1);
+            assert.equal(request[3], encryptedFileHash);
+        });
+
+        it("Emits FileRequestFulfilled event", async () => {
+            let tx = await fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror1});
+            let event = await retrieveEvent(tx, "FileRequestFulfilled");
+
+            assert.equal(event.args.id, 1);
+            assert.equal(event.args.fileOfferingID, 1);
+            assert.equal(event.args.encryptedFileHash, encryptedFileHash);
+        });
+
+        it("Reverts if called for removed file offering", async () => {
+            await fileTrading.removeFileOffering(1, {from: offeror1});
+            await assertRevert(fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror1}));
+        });
+
+        it("Reverts if called for wrong file offering", async() => {
+           await assertRevert(fileTrading.fulfillFileRequest(2, 1, encryptedFileHash, {from: offeror1}));
+        });
+
+        it("Reverts if called for wrong nonexistant file request", async() => {
+            await assertRevert(fileTrading.fulfillFileRequest(1, 3, encryptedFileHash, {from: offeror1}));
+        });
+
+        it("Reverts if called for already fulfilled request", async() => {
+            await fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror1});
+            await assertRevert(fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror1}));
+        });
+
+        it("Reverts if called by non-offeror", async() => {
+            await assertRevert(fileTrading.fulfillFileRequest(1, 1, encryptedFileHash, {from: offeror2}));
+        });
+
+        it("Reverts if called with empty hash", async() => {
+            await assertRevert(fileTrading.fulfillFileRequest(1, 1, "0x", {from: offeror1}));
+        })
+    });
 });
